@@ -1,0 +1,23 @@
+<html>
+
+
+<head>
+ <meta name="keywords" content="Xeno Canto collector">
+ <title>Xeno Canto Collector</title>
+ <meta http-equiv="Content-Type" content="text/html;">
+ <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body bgcolor="linen">
+
+</html>
+
+<erl>
+
+out(A) ->
+    xeno:call_out(A).
+
+</erl>
+
+
+
