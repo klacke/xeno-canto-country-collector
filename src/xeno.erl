@@ -19,6 +19,9 @@ call_out(A) ->
         " a collection of recordings from that country (and neighboring "
         "countries as well."},
 
+       {p, [], ["The code for this is open source and resides on github at ",
+                {a, [{href, "https://github.com/klacke/xeno-canto-country-collector"}],
+                 "https://github.com/klacke/xeno-canto-country-collector"}]},
        {p, [],
         "Below is a table of previously generated country collections, use "
         "one of those instead of generatiing a new one"},
@@ -54,40 +57,41 @@ call_out(A) ->
          {li, [],
           {p,[],
            "Two 'call' and two 'song' recordings are picked (if available).
-            Ff not the next (up to four) next best recordings
-            are picked"
+            If not, the next (up to four) next best recordings
+            are picked."
           }
          }]},
 
        {h2, [], "Generate a new collection"},
 
        {p, [],
-        "Generating a collection of MP3s from Xen-canto typically takes "
+        "Generating a collection of MP3s from Xeno-canto typically takes "
         " some time, some countries have a massive amount of species, "
         " also please don't overuse this, i.e don't put too high load "
-        " on the xeno-canto webservers. If you find a collection to your "
-        " liking below, pick that instead of generating a new"
+        " on the xeno-canto web servers. If you find a collection to your "
+        " liking below, pick that instead of generating a new."
        },
 
        {p, [], "Enter a list of countries, use comma ',' to separate "
         "the countries. For example to generate a list for the nordic "
         " countries, enter 'Sweden, Norway, Denmark, Finland'"},
 
-       {p, [], "It's important to spell the countries exactly right"},
+       {p, [], "It's important to spell the countries exactly right."},
        {p, [], "Just generating the list takes some considerable time, "
-        "especially for countries with a large number of recordings"},
+        "especially for countries with a large number of recordings, there are no"
+        " spinning wheels or anything, just be patient"},
 
        {form, [{method, get},
-               {action, "call_gen.yaws"}],
+               {action, "xeno_gen.yaws"}],
         [
-         {p,[], "Enter comma separated list of countries"},
+         {p,[], "Enter 'comma' separated list of countries"},
          {input, [{name, countries},
                    {type, text},
                    {size, 100}]}
         ]},
        {h2,[], "Previous lists"},
-       front_gen_list(A)
-
+       front_gen_list(A),
+       {p, [], "Author: Claes Wikstrom"}
       ]
      }.
 
@@ -131,7 +135,7 @@ front_gen_list(A) ->
              {td,[],{p,[],"URL"}}]},
     Rows = [ Row1 |
              lists:map(
-               fun({Coll, Base, Countries, Date, Len, Name}) ->
+               fun({_Collection, Base, Countries, Date, Len, Name}) ->
                        {tr, [],
                         [
                          {td, [], fmt(Countries)},
@@ -146,7 +150,7 @@ front_gen_list(A) ->
      Rows}.
 
 
-mk_url(A, Dir) ->
+mk_url(_A, Dir) ->
     {a, [{href, "calls/" ++ Dir ++ "/zip" }],  Dir}.
 
 
@@ -174,7 +178,7 @@ t(Sp) ->
     {ok, B} = file:read_file("/Users/klacke/x"),
     All = binary_to_term(B),
     Choosen = choose(All),
-    L = lists:foreach(
+    lists:foreach(
           fun(I = #item{name = N}) when N == Sp ->
                   pritem(I);
              (_) ->
@@ -182,9 +186,9 @@ t(Sp) ->
           end, Choosen).
 
 pritems(Head, L) ->
-    io:format("~s~n", [Head]),
+    io:format("~s (~p)~n", [Head, length(L)]),
     lists:foreach(
-      fun(I = #item{name = N})  ->
+      fun(I = #item{})  ->
               pritem(I);
          (_) ->
               ok
@@ -198,7 +202,7 @@ call_gen_out(A) ->
 
     Countries0 = case lists:keysearch("countries", 1, P) of
                     {value, {_, Clist}} ->
-                        CL = string:tokens(Clist, ", "),
+                        CL = string:tokens(Clist, ","),
                         Ret =lists:map(fun(C) -> string:strip(C, both) end, CL),
                         Ret;
               _ ->
@@ -208,7 +212,7 @@ call_gen_out(A) ->
     Countries = lists:sort(Countries0),
     ibrowse:start(),
     All = lists:flatten(wget2(Countries)),
-    file:write_file("/Users/klacke/x", term_to_binary(All)),
+    %file:write_file("/Users/klacke/x", term_to_binary(All)),
     Choosen = choose(All),
 
     prepare(Countries, Choosen),
@@ -218,7 +222,7 @@ call_gen_out(A) ->
       {form,
        [{name, form},
         {method, post},
-        {action, f("call_download.yaws?countries=~s", [Clist])}],
+        {action, f("xeno_download.yaws?countries=~s", [Clist])}],
 
        [
         {p, [],
@@ -237,7 +241,7 @@ call_gen_out(A) ->
          "Do you wish to make the request do download the list below? "
          "Once finished, your resulting collection will occur at "},
 
-        {a, [{href, "call.yaws"}], "Xeno Canto country collector"},
+        {a, [{href, "index.yaws"}], "Xeno Canto country collector"},
 
 
         {p, [], ["Your name:",
@@ -323,7 +327,7 @@ gen_list(A) ->
              {td,[],{p,[],"URL"}}]},
     Rows = [ Row1 |
              lists:map(
-               fun({Coll, Base, Countries, Date, Len}) ->
+               fun({_Coll, Base, Countries, Date, Len}) ->
                        {tr, [],
                         [
                          {td, [], Countries},
@@ -341,7 +345,7 @@ gen_list(A) ->
 wget2([C|Countries]) ->
     ?liof("Getting Country ~p~n", [C]),
     CountryList = lists:flatten(wget3(C)),
-    io:format("Got ~p for ~p~n", [length(CountryList), C]),
+    ?liof("Got ~p for ~p~n", [length(CountryList), C]),
     Rest = wget2(Countries),
     CountryList ++ Rest;
 wget2([]) ->
@@ -352,8 +356,8 @@ wget3(Country) ->
 
 wget4(Ctr,  I) ->
     Url = io_lib:format(
-            "http://www.xeno-canto.org/explore?query=cnt%3A~s&pg=~w",[Ctr, I]),
-    io:format("Url ~s~n", [Url]),
+            "http://www.xeno-canto.org/explore?query=cnt%3A\"~s\"&pg=~w",[unsp(Ctr), I]),
+    ?liof("Url ~s~n", [Url]),
     case ibrowse:send_req(Url, [], get) of
         {ok, "200", _Attrs, Body} ->
             case body(Body) of
@@ -363,7 +367,7 @@ wget4(Ctr,  I) ->
                     [List , wget4(Ctr, I+1)]
             end;
         _Err ->
-            io:format("URL ~p -> ~p~n",[Url, _Err]),
+            ?liof("URL ~p -> ~p~n",[Url, _Err]),
             []
     end.
 
@@ -389,7 +393,7 @@ body(Chars) ->
                              case catch collect(Tr) of
                                  {'EXIT', Err} ->
                                      ?cerror_msg("~p~n", [Err]),
-                                     io:format("DROP \n~p~n",[Tr]),
+                                     ?liof("DROP \n~p~n",[Tr]),
                                      false;
                                  Ret ->
                                      {true, Ret}
@@ -416,7 +420,9 @@ take_del(_, [], Take, Rest) ->
     {Take, Rest}.
 
 choose(L) ->
+    ?liof("Choosing from ~p~n", [length(L)]),
     Groups = group(L),
+    ?liof("Choosing from ~p grouos ~n", [length(Groups)]),
     lists:flatten(choose2(Groups)).
 
 choose2([G|Gs]) ->
@@ -426,9 +432,8 @@ choose2([G|Gs]) ->
 choose2([]) ->
     [].
 
-pick(L, Name) ->
+pick(L, _Name) ->
     Rated = lists:keysort(#item.rating, L),
-
     LongSort = lists:sort(
                  fun(X, Y) ->
                          (X#item.rating < Y#item.rating)
@@ -436,40 +441,12 @@ pick(L, Name) ->
                              (X#item.time  > Y#item.time)
                  end, Rated),
 
-
-    if Name == <<"Yellowhammer">> ->
-            pritems("** Longsort", LongSort);
-       true ->
-            ok
-    end,
-
     Songs = pick_songs(LongSort, 0),
 
-    if Name == <<"Yellowhammer">> ->
-            pritems("** Songs", Songs);
-       true ->
-            ok
-    end,
 
-
-    Calls = pick_calls(LongSort, 0),
+    Calls = pick_calls(LongSort -- Songs, 0),
 
     Return = lists:append(Songs, Calls),
-
-    if Name == <<"Yellowhammer">> ->
-            io:format("XXXX Cals ~p~nSongs:~p~nRet~p~n",
-                      [Calls, Songs, Return]);
-            %pritems("** Calls", Calls);
-       true ->
-            ok
-    end,
-
-
-    if Name == <<"Yellowhammer">> ->
-            io:format("** Ret ~p~n", [length(Return)]);
-       true ->
-            ok
-    end,
 
     Len = length(Return),
     if Len < 4 ->
@@ -480,14 +457,12 @@ pick(L, Name) ->
     end.
 
 
-take_num(L, 0) ->
+take_num(_L, 0) ->
     [];
 take_num([], _) ->
     [];
 take_num([H|T], I) ->
     [H |take_num(T, I-1)].
-
-
 
 
 pick_songs(_, 2) ->
@@ -518,40 +493,20 @@ pick_calls([H|T], I) ->
 
 is_song(Item) ->
     Sound = binary_to_list(Item#item.sound),
-    case lists:member(true,
-                      [contains("song", Sound), contains("Song", Sound)]) of
-        true ->
-            not is_call(Item);
-        false ->
-            false
-    end.
-
+    lists:member(true,
+                 [contains("song", Sound), contains("Song", Sound)]).
 
 is_call(Item) ->
     Sound = binary_to_list(Item#item.sound),
-    case lists:member(true,
-                      [contains("call", Sound), contains("Call", Sound)]) of
-        true ->
-            not is_song(Item);
-        false ->
-            false
-    end.
+    lists:member(true,
+                      [contains("call", Sound), contains("Call", Sound)]).
 
 
 
 
-contains(Sub, Str) ->
-    contains(Sub, Sub, Str).
 
-contains(Sub, [H1|T1], [H1 |T2]) ->
-    contains(Sub, T1, T2);
-contains(_, [], _) ->
-    true;
-contains(_,_,[]) ->
-    false;
-contains(Sub, [H1|T1], [H2|T2]) ->
-    %% restart
-    contains(Sub, Sub, T2).
+contains(Small, Big)->
+    string:str(Big, Small) > 0.
 
 
 %% test
@@ -577,15 +532,15 @@ aa() ->
       fun(Tr) ->
               case catch collect(Tr) of
                   {'EXIT', Err} ->
-                      io:format("~p~n~p~n", [Err, erlang:get_stacktrace()]),
-                      io:format("~p~n", [Tr]);
+                      ?liof("~p~n~p~n", [Err, erlang:get_stacktrace()]),
+                      ?liof("~p~n", [Tr]);
                   _ ->
                       ok
               end
       end,Trs).
 
 collect({_Div, _Attr, Stmts}) ->
-    [Td1, Td2, Len, Td4, _Date, Time, Country, Loc, _, Call , _, Rating| _]
+    [Td1, Td2, Len, _Td4, _Date, _Time, Country, _Loc, _, Call , _, Rating| _]
         = Stmts,
 
     {_Div1, _, [Div2|_]} = Td1,
@@ -616,6 +571,12 @@ collect({_Div, _Attr, Stmts}) ->
           time = strip(LenStr),
           country = Ctr}.
 
+unsp([$\s|T]) ->
+    [$+|unsp(T)];
+unsp([H|T])->
+    [H|unsp(T)];
+unsp([]) ->
+    [].
 
 strip(S) ->
     R=lists:zf(fun(Char) ->
@@ -644,11 +605,11 @@ rating([]) ->
 p(L) ->
     lists:foreach(
       fun(X) ->
-              io:format("~p~n", [element(1, X)])
+              ?liof("~p~n", [element(1, X)])
       end, L).
 
-pr_stmt({Tag, Attr, Ss}) ->
-    io:format("Tag: ~p -> ~p~n",[Tag, length(Ss)]).
+pr_stmt({Tag, _Attr, Ss}) ->
+    ?liof("Tag: ~p -> ~p~n",[Tag, length(Ss)]).
 
 
 f(F,A) ->
@@ -677,16 +638,10 @@ prepare(Countries, Choosen) ->
     end.
 
 generate(Countries, Name, Docroot) ->
-    Dir = Docroot ++ "/calls/" ++ dir_str(Countries),
-    case file:read_file_info(Dir) of
-        {ok, _} ->
-            {exists, Dir};
-        _ ->
-            gen_call ! {self(), {generate, Countries, Name, Docroot}},
-            receive
-                {gen_call, Res} ->
-                    Res
-            end
+    gen_call ! {self(), {generate, Countries, Name, Docroot}},
+    receive
+        {gen_call, Res} ->
+            Res
     end.
 
 gen_caller() ->
@@ -698,21 +653,42 @@ gen_caller(Lists) ->
             From ! {gen_call, ok},
             gen_caller([{false, Countries, Choosen, noname} | Lists]);
         {From, {generate, Countries, Name, Docroot}} ->
+            Dir  = Docroot ++ "/calls/" ++ dir_str(Countries),
+            Prev = case file:read_file_info(Dir) of
+                       {ok, _} ->
+                           case file:read_file_info(Dir ++ "/meta.bin") of
+                               {ok, _} ->
+                                   {exists, Countries};
+                               _ ->
+                                   {running, Countries}
+                           end;
+                       _ ->
+                           ok
+                   end,
+
             case lists:keysearch(Countries, 2, Lists) of
                 {value, {false, _,  Choosen, _}} ->
                     ?liof("spawning \n",[]),
+                    os:cmd(["rm -rf " , Dir]),
                     Pid = proc_lib:spawn_link(
                             fun() ->
                                     do_generate(Countries, Choosen,
                                                 Name, Docroot)
                             end),
                     L2 = lists:keydelete(Countries, 2, Lists),
-                    From ! {gen_call, ok},
+                    From ! {gen_call, Prev},
                     gen_caller([{Pid, Countries, Choosen, Name} | L2]);
-                {value, {Pid, Countries, _Choosen2, Name2}} ->
-                    ?liof("running \n",[]),
-                    From  ! {gen_call, {running, Name2}},
-                    gen_caller(Lists);
+                {value, {Pid2, Countries, Choosen2, _Name2}} ->
+                    exit(Pid2, kill),
+                    os:cmd(["rm -rf " , Dir]),
+                    Pid = proc_lib:spawn_link(
+                            fun() ->
+                                    do_generate(Countries, Choosen2,
+                                                Name, Docroot)
+                            end),
+                    L2 = lists:keydelete(Countries, 2, Lists),
+                    From  ! {gen_call, {running, Countries}},
+                    gen_caller([{Pid, Countries, Choosen2, Name} | L2]);
                 false ->
                     ?liof("none \n"
                           "Lists = ~p~n"
@@ -730,7 +706,7 @@ gen_caller(Lists) ->
                                           {Pid, {Num, Tot}} ->
                                               {true, {Name2, Countries,
                                                       Num, Tot}};
-                                          {EXIT, Pid, _} ->
+                                          {'EXIT', Pid, _} ->
                                               false
                                       end;
                                  true ->
@@ -781,16 +757,15 @@ do_generate2(Countries, Choosen, Name, Docroot) ->
                   dash_name(binary_to_list(Item#item.country)) ++
                   "(" ++ integer_to_list(Number) ++ ")" ++
                   "].mp3'",
-              io:format("M: ~p~n", [Mp3]),
-                      io:format("Downloading ~p~nto~p~n",
-                                [Item#item.file, Mp3]),
+              ?liof("M: ~p~n", [Mp3]),
+              ?liof("Downloading ~p~nto~p~n",
+                    [Item#item.file, Mp3]),
               Cmd = lists:flatten(
                       ["curl ",
                       binary_to_list(Item#item.file), " > ", Mp3]),
               ?liof("CMD: ~s", [Cmd]),
               os:cmd(Cmd),
-              io:format("DONE \n",[])
-              %%os:cmd(["touch ", Mp3])
+              ?liof("DONE \n",[])
       end, Choosen2),
     file:write_file(Dir ++ "/meta.bin", term_to_binary(Meta)),
     ?liof("Done downloadeing ~p~n", [Meta]).
@@ -816,11 +791,12 @@ call_download_out(A) ->
     CliD = binary_to_list(A#arg.clidata),
 
     Countries = case lists:keysearch("countries", 1, P) of
-              {value, {_, Clist}} ->
-                  string:tokens(Clist, ", ");
-              _ ->
-                  []
-          end,
+                    {value, {_, Clist}} ->
+                        Tks = string:tokens(Clist, ","),
+                        lists:sort(lists:map(fun(Tk) -> string:strip(Tk, both) end, Tks));
+                    _ ->
+                        []
+                end,
 
     case CliD of
         [] ->
@@ -835,19 +811,16 @@ call_download_out(A) ->
                     {ehtml,
                      [{h1,[],"Xeno Canto Country Downloader"},
                       hours(),
-                      {p, [], ["Download in progress ..."
-                               "check later for your compiled lists with "
-                               "your name at: ",
-                               {a, [{href, "call.yaws"}],
-                                    "Xeno Cantor downloader"}]}]};
-                {running, Name2} ->
+                      dl()]};
+                {running, Countries} ->
                     {ehtml,
                      [{h1,[],"Xeno Canto Country Downloader"},
-                      {p, [], f("A download for ~p is already in progress"
-                                "by ~s",
-                                [Countries, Name2])}]};
-                {exists, Dir} ->
-                    os:cmd(["rm -rf " , Dir]),
+                      {p, [], f("A download for ~p is already in progress",
+                                [Countries])},
+                      {p, [], "It has been cancelled and replaced with your request"},
+                      hours(), dl()]};
+
+                {exists, Countries} ->
                     {ehtml,
                      [{h1,[],"Xeno Canto Country Downloader"},
                       {p, [], f("A compilation for ~p already existed, "
@@ -855,11 +828,7 @@ call_download_out(A) ->
                                 " in progress ",
                                 [Countries])},
                       hours(),
-                      {p, [], ["Download in progress ..."
-                               "check later for your compiled lists with "
-                               "your name at: ",
-                               {a, [{href, "call.yaws"}],
-                                    "Xeno Cantor downloader"}]}]};
+                      dl()]};
                 none ->
                     {ehtml,
                      [{h1,[],"Xeno Canto Country Downloader"},
@@ -870,6 +839,14 @@ call_download_out(A) ->
                     ok
             end
     end.
+
+
+dl() ->
+    {p, [], ["Download in progress ..."
+             "check later for your compiled lists with "
+             "your name at: ",
+             {a, [{href, "index.yaws"}],
+              "Xeno Cantor downloader"}]}.
 
 
 hours() ->
