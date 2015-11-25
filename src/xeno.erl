@@ -3,11 +3,17 @@
 
 -include("yaws_api.hrl").
 
--define(liof(Fmt, Args), io:format(user, "~w:~w " ++ Fmt,[?MODULE,?LINE|Args])).
+
+-define(liof(Fmt, Args),
+        io:format(user, "~w:~w " ++ Fmt,[?MODULE,?LINE|Args])).
+%-define(liof(Fmt, Args), ok).
+
 -define(cerror_msg(Fmt, Args),
         error_logger:error_msg("~w:~w: " ++ Fmt ++ "~p\n",
                                [?MODULE, ?LINE | Args] ++
                                    [erlang:get_stacktrace()])).
+
+
 
 call_out(A) ->
      {ehtml,
@@ -62,6 +68,7 @@ call_out(A) ->
           }
          }]},
 
+
        {h2, [], "Generate a new collection"},
 
        {p, [],
@@ -78,7 +85,8 @@ call_out(A) ->
 
        {p, [], "It's important to spell the countries exactly right."},
        {p, [], "Just generating the list takes some considerable time, "
-        "especially for countries with a large number of recordings, there are no"
+        "especially for countries with a large number of recordings, "
+        "there are no"
         " spinning wheels or anything, just be patient"},
 
        {form, [{method, get},
@@ -97,62 +105,104 @@ call_out(A) ->
 
 
 front_gen_list(A) ->
-    Dir = A#arg.docroot ++ "/calls/",
+    Dir = A#arg.docroot ++ "/xeno/calls/",
     file:make_dir(Dir),
     {ok, Collections} = file:list_dir(Dir),
     Map = lists:zf(
             fun(Coll) ->
                     %% e.g Syria
-
-                    Base = filename:basename(Coll),
-                    MetaFile = Dir ++ Coll ++ "/meta.bin",
-
                     try
-
+                        Base = filename:basename(Coll),
+                        MetaFile = Dir ++ Coll ++ "/meta.bin",
                         {ok, B} = file:read_file(MetaFile),
                         Meta = binary_to_term(B),
+                        ?liof("Meta = ~p~n", [Meta]),
 
-                        {value, {countries, Countries}} =
+                        {value, {_, Countries}} =
                             lists:keysearch(countries, 1, Meta),
-                        {value, {date, Date}} =
+                        {value, {_, Date}} =
                             lists:keysearch(date, 1, Meta),
-                        {value, {length, Len}} =
+                        {value, {_, Len}} =
                             lists:keysearch(length, 1, Meta),
-                        {value, {name, Name}} =
+                        {value, {_, Name}} =
                             lists:keysearch(name, 1, Meta),
-
-                        {true, {Coll, Base, Countries, Date, Len, Name}}
+                        {value, {_, Done}} =
+                            lists:keysearch(done, 1, Meta),
+                        {value, {_, Num}} =
+                            lists:keysearch(numspecs, 1, Meta),
+                        {true, {Coll, Base, Countries, Date,
+                                Len, Name, Done, Num}}
                     catch _:_ ->
+                            ?cerror_msg("Drop meta for ~p~n", [Coll]),
                             false
                     end
+
             end, Collections),
 
     Row1 = {tr,[],
             [{td,[],{p,[],"Countries"}},
              {td,[],{p,[],"Date"}},
              {td,[],{p,[],"Num files"}},
+             {td,[],{p,[],"Num species"}},
              {td,[],{p,[],"Requestor"}},
-             {td,[],{p,[],"URL"}}]},
+             {td,[],{p,[],"URL"}},
+             {td,[],{p,[],"Size"}}
+            ]},
     Rows = [ Row1 |
              lists:map(
-               fun({_Collection, Base, Countries, Date, Len, Name}) ->
+               fun({Collection, Base, Countries, Date, Len,
+                    Name, Done, Num}) ->
                        {tr, [],
                         [
-                         {td, [], fmt(Countries)},
+                         {td, [], fmt_c(Countries)},
                          {td, [], fmt_date(Date)},
                          {td, [], fmt(Len)},
+                         {td, [], fmt(Num)},
                          {td, [], fmt(Name)},
-                         {td, [], mk_url(A, Base)}
+                         {td, [], mk_url(A, Base, Done, Collection)},
+                         {td, [], mk_sz(A, Base, Done, Collection)}
                         ]}
                end, Map)],
 
     {table,[{border, "1"}, {bordercolor, "black"}],
      Rows}.
 
+mk_url(_A, _Dir, false, _) ->
+    {p, [], "Still downloading...."};
+mk_url(_A, Dir, true, Cdir) ->
+    {a, [{href, "/xeno/calls/" ++ Dir ++ "/" ++ Cdir ++ ".tar.gz" }],  Cdir}.
 
-mk_url(_A, Dir) ->
-    {a, [{href, "calls/" ++ Dir ++ "/zip" }],  Dir}.
+mk_sz(_A, _Dir, false, _) ->
+    {p,[], "N/A"};
+mk_sz(A, Dir, true, Cdir) ->
+    File = A#arg.docroot ++ "/xeno/calls/" ++ Dir ++ "/" ++ Cdir
+        ++ ".tar.gz",
+    ?liof("File ~s~n", [File]),
+    {ok, FI} = file:read_file_info(File),
+    Sz = element(2, FI),
+    {p, [], human_filesize(Sz)}.
 
+human_filesize(Size) ->
+     human_filesize(Size, ["B","KB","MB","GB","TB","PB"]).
+
+human_filesize(S, [_|[_|_] = L]) when S >= 1024 ->
+     human_filesize(S/1024, L);
+human_filesize(S, [M|_]) ->
+    
+    io_lib:format("~.2f ~s", [float(S), M]).
+
+join(List, Sep) ->
+    join(List, Sep, []).
+
+join([], _Sep, Acc) ->
+    lists:flatten(lists:reverse(Acc));
+join(X=[_], _Sep, Acc) ->
+    lists:flatten(lists:reverse(Acc, X));
+join([H|T], Sep, Acc) ->
+    join(T, Sep, [Sep,H|Acc]).
+
+fmt_c(Countries) ->
+    {p, [], join(Countries, "<br/>")}.
 
 fmt(T) ->
     io_lib:format("~p", [T]).
@@ -299,49 +349,6 @@ make_rows(Ch) ->
       end, Ch).
 
 
-gen_list(A) ->
-    Dir = A#arg.docroot ++ "/calls/",
-    {ok, Collections} = file:list_dir(Dir),
-    Map = lists:map(
-            fun(Coll) ->
-                    %% e.g Syria
-                    Base = filename:basename(Coll),
-                    MetaFile = Dir ++ Coll ++ "/meta.bin",
-                    {ok, B} = file:read_file(MetaFile),
-                    Meta = binary_to_term(B),
-
-                    {value, {countries, Countries}} =
-                        lists:keysearch(countries, 1, Meta),
-                    {value, {date, Date}} =
-                        lists:keysearch(date, 1, Meta),
-                    {value, {length, Len}} =
-                        lists:keysearch(length, 1, Meta),
-
-                    {Coll, Base, Countries, Date, Len}
-            end, Collections),
-
-    Row1 = {tr,[],
-            [{td,[],{p,[],"Countries"}},
-             {td,[],{p,[],"Date"}},
-             {td,[],{p,[],"Num"}},
-             {td,[],{p,[],"URL"}}]},
-    Rows = [ Row1 |
-             lists:map(
-               fun({_Coll, Base, Countries, Date, Len}) ->
-                       {tr, [],
-                        [
-                         {td, [], Countries},
-                         {td, [], fmt(Date)},
-                         {td, [], fmt(Len)},
-                         {td, [], mk_url(A, Base)}
-                        ]}
-               end, Map)],
-    {table,[{border, "1"}, {bordercolor, "black"}],
-     Rows}.
-
-
-
-
 wget2([C|Countries]) ->
     ?liof("Getting Country ~p~n", [C]),
     CountryList = lists:flatten(wget3(C)),
@@ -356,7 +363,8 @@ wget3(Country) ->
 
 wget4(Ctr,  I) ->
     Url = io_lib:format(
-            "http://www.xeno-canto.org/explore?query=cnt%3A\"~s\"&pg=~w",[unsp(Ctr), I]),
+            "http://www.xeno-canto.org/explore?query=cnt%3A\"~s\"&pg=~w",
+            [replace($\s, $+, Ctr), I]),
     ?liof("Url ~s~n", [Url]),
     case ibrowse:send_req(Url, [], get) of
         {ok, "200", _Attrs, Body} ->
@@ -367,7 +375,7 @@ wget4(Ctr,  I) ->
                     [List , wget4(Ctr, I+1)]
             end;
         _Err ->
-            ?liof("URL ~p -> ~p~n",[Url, _Err]),
+            error_logger:error_msg("URL ~p -> ~p~n",[Url, _Err]),
             []
     end.
 
@@ -391,9 +399,9 @@ body(Chars) ->
        true ->
             lists:zf(fun(Tr) ->
                              case catch collect(Tr) of
-                                 {'EXIT', Err} ->
-                                     ?cerror_msg("~p~n", [Err]),
-                                     ?liof("DROP \n~p~n",[Tr]),
+                                 {'EXIT', _Err} ->
+                                     %?cerror_msg("~p~n", [Err]),
+                                     %?liof("DROP \n~p~n",[Tr]),
                                      false;
                                  Ret ->
                                      {true, Ret}
@@ -571,12 +579,13 @@ collect({_Div, _Attr, Stmts}) ->
           time = strip(LenStr),
           country = Ctr}.
 
-unsp([$\s|T]) ->
-    [$+|unsp(T)];
-unsp([H|T])->
-    [H|unsp(T)];
-unsp([]) ->
-    [].
+
+replace(_From, _To, []) ->
+    [];
+replace(From, To, [From |T]) ->
+    [To | replace(From, To, T)];
+replace(From , To, [H|T]) ->
+    [H | replace(From, To, T)].
 
 strip(S) ->
     R=lists:zf(fun(Char) ->
@@ -637,6 +646,8 @@ prepare(Countries, Choosen) ->
             Res
     end.
 
+generate(_Countries, "", _Docroot) ->
+    noname;
 generate(Countries, Name, Docroot) ->
     gen_call ! {self(), {generate, Countries, Name, Docroot}},
     receive
@@ -646,14 +657,18 @@ generate(Countries, Name, Docroot) ->
 
 gen_caller() ->
     process_flag(trap_exit, true),
-    gen_caller([]).
-gen_caller(Lists) ->
+    try gen_caller([], none)
+    catch X:Y ->
+            ?cerror_msg("~p", [{X,Y}])
+    end.
+
+gen_caller(Prep, Mode) ->
     receive
-        {From, {prepare,  Countries, Choosen}} ->
+        {From, {prepare, Countries, Choosen}} ->
             From ! {gen_call, ok},
-            gen_caller([{false, Countries, Choosen, noname} | Lists]);
+            gen_caller([{prepared, Countries, Choosen}| Prep], Mode);
         {From, {generate, Countries, Name, Docroot}} ->
-            Dir  = Docroot ++ "/calls/" ++ dir_str(Countries),
+            Dir  = Docroot ++ "/xeno/calls/" ++ dir_str(Countries),
             Prev = case file:read_file_info(Dir) of
                        {ok, _} ->
                            case file:read_file_info(Dir ++ "/meta.bin") of
@@ -665,63 +680,55 @@ gen_caller(Lists) ->
                        _ ->
                            ok
                    end,
-
-            case lists:keysearch(Countries, 2, Lists) of
-                {value, {false, _,  Choosen, _}} ->
-                    ?liof("spawning \n",[]),
-                    os:cmd(["rm -rf " , Dir]),
-                    Pid = proc_lib:spawn_link(
-                            fun() ->
-                                    do_generate(Countries, Choosen,
-                                                Name, Docroot)
-                            end),
-                    L2 = lists:keydelete(Countries, 2, Lists),
-                    From ! {gen_call, Prev},
-                    gen_caller([{Pid, Countries, Choosen, Name} | L2]);
-                {value, {Pid2, Countries, Choosen2, _Name2}} ->
-                    exit(Pid2, kill),
-                    os:cmd(["rm -rf " , Dir]),
-                    Pid = proc_lib:spawn_link(
-                            fun() ->
-                                    do_generate(Countries, Choosen2,
-                                                Name, Docroot)
-                            end),
-                    L2 = lists:keydelete(Countries, 2, Lists),
-                    From  ! {gen_call, {running, Countries}},
-                    gen_caller([{Pid, Countries, Choosen2, Name} | L2]);
+            case lists:keysearch(Countries, 2, Prep) of
                 false ->
-                    ?liof("none \n"
-                          "Lists = ~p~n"
-                          "Countries = ~p~n", [Lists, Countries]),
                     From  ! {gen_call, none},
-                    gen_caller(Lists)
+                    gen_caller(Prep, Mode);
+                {value, {prepared, _, Choosen}} ->
+                    case Mode of
+                        none ->
+                            os:cmd(["rm -rf " , Dir]),
+                            Pid = proc_lib:spawn_link(
+                                    fun() ->
+                                            do_generate(Countries, Choosen,
+                                                        Name, Docroot)
+                                    end),
+                            %% 1 hours, cleanup
+                            timer:send_after(1000 * 3600 * 1, self(),
+                                             {clean,Dir,Pid}),
+                            
+                            From ! {gen_call, Prev},
+                            Mode2 = {generating, Pid, Countries, Choosen,
+                                     Name},
+                            Prep2 = lists:keydelete(Countries, 2, Prep),
+                            gen_caller(Prep2, Mode2);
+                        {generating, _, Countries2, _, Name} ->
+                            From ! {gen_call, {occupied, Countries2, Name}},
+                            gen_caller(Prep, Mode)
+                    end
             end;
-        {From, ongoing} ->
-            From ! {gen_call,
-                    lists:zf(
-                      fun({Pid, Countries, _Choosen2, Name2}) ->
-                              if is_pid(Pid) ->
-                                      Pid ! {self(), get_num},
-                                      receive
-                                          {Pid, {Num, Tot}} ->
-                                              {true, {Name2, Countries,
-                                                      Num, Tot}};
-                                          {'EXIT', Pid, _} ->
-                                              false
-                                      end;
-                                 true ->
-                                      false
-                              end
-                      end, Lists)},
-            gen_caller(Lists);
-        {'EXIT', From, _} ->
-            gen_caller(lists:keydelete(1, From, Lists))
+        {clean, Dir, Pid} ->
+            case Mode of
+                {generating, Pid, _Countries2, _, _Name} ->
+                    exit(Pid, kill),
+                    os:cmd([" rm -rf ", Dir]),
+                    gen_caller(Prep, none);
+                _ ->
+                    gen_caller(Prep, Mode)
+            end;
+        {'EXIT', Pid, _} ->
+            case Mode of
+                {generating, Pid, _Countries2, _, _Name} ->
+                    gen_caller(Prep, none);
+                _ ->
+                    gen_caller(Prep, Mode)
+            end
     end.
 
 dir_str([Last]) ->
-    Last;
+    replace($\s, $_, Last);
 dir_str([H|T]) ->
-    H ++ "-" ++ dir_str(T).
+    replace($\s, $_, H) ++ "-" ++ dir_str(T).
 
 do_generate(Countries, Choosen, Name, Docroot) ->
     try
@@ -731,16 +738,23 @@ do_generate(Countries, Choosen, Name, Docroot) ->
     end.
 
 do_generate2(Countries, Choosen, Name, Docroot) ->
-    file:make_dir(Docroot ++ "/calls/"),
-    Dir = Docroot ++ "/calls/" ++ dir_str(Countries),
-    ok = file:make_dir(Dir),
+    file:make_dir(Docroot ++ "/xeno/calls/"),
+    CountryDir = dir_str(Countries),
+    Dir = Docroot ++ "/xeno/calls/" ++ CountryDir, 
+    file:make_dir(Dir),
+
+    NumSpecs = length(
+                 uniq(lists:map(fun(#item{name = N}) -> N end, Choosen))),
+
     Meta = [{countries, Countries},
             {date, date()},
             {name, Name},
+            {done, false},
+            {numspecs, NumSpecs},
             {length, length(Choosen)}],
+    file:write_file(Dir ++ "/meta.bin", term_to_binary(Meta)),
 
-    file:make_dir(Dir ++ "/zip"),
-    ?liof("here \n",[]),
+    file:make_dir(Dir ++ "/" ++ CountryDir),
     Choosen2 = lists:zip(Choosen, lists:seq(1, length(Choosen))),
     lists:foreach(
       fun({Item, Number}) ->
@@ -751,10 +765,10 @@ do_generate2(Countries, Choosen, Name, Docroot) ->
                       ok
               end,
               Mp3 = "'" ++ Dir ++
-                  "/zip/" ++
-                  dash_name(binary_to_list(Item#item.name)) ++
+                  "/" ++ CountryDir ++ "/" ++
+                  replace($\s, $-, binary_to_list(Item#item.name)) ++
                   "[" ++
-                  dash_name(binary_to_list(Item#item.country)) ++
+                  replace($\s, $-, binary_to_list(Item#item.country)) ++
                   "(" ++ integer_to_list(Number) ++ ")" ++
                   "].mp3'",
               ?liof("M: ~p~n", [Mp3]),
@@ -767,19 +781,16 @@ do_generate2(Countries, Choosen, Name, Docroot) ->
               os:cmd(Cmd),
               ?liof("DONE \n",[])
       end, Choosen2),
-    file:write_file(Dir ++ "/meta.bin", term_to_binary(Meta)),
-    ?liof("Done downloadeing ~p~n", [Meta]).
-
-
-dash_name(L) ->
-    lists:map(fun(Char) ->
-                      if Char == 32 ->
-                              $-;
-                         true ->
-                              Char
-                      end
-              end, L).
-
+    Meta2 = [{countries, Countries},
+             {date, date()},
+             {name, Name},
+             {done, true},
+             {numspecs, NumSpecs},
+             {length, length(Choosen)}],
+    os:cmd(_Cmd = ["cd ", Dir, "; tar cfz ", CountryDir,
+                        ".tar.gz ", CountryDir,
+                        "; rm -rf ", CountryDir]), 
+    file:write_file(Dir ++ "/meta.bin", term_to_binary(Meta2)).
 
 
 
@@ -812,10 +823,16 @@ call_download_out(A) ->
                      [{h1,[],"Xeno Canto Country Downloader"},
                       hours(),
                       dl()]};
+                noname ->
+                    {ehtml,
+                     [{h1,[],"Xeno Canto Country Downloader"},
+                      {p, [], "Must provide a name, retry !!"}]};
+
                 {running, Countries} ->
                     {ehtml,
                      [{h1,[],"Xeno Canto Country Downloader"},
-                      {p, [], f("A download for ~p is already in progress",
+                      {p, [], f("A download for ~p is already in progress"
+                                ", alternatively it has been aborted earlier ",
                                 [Countries])},
                       {p, [], "It has been cancelled and replaced with your request"},
                       hours(), dl()]};
@@ -829,6 +846,18 @@ call_download_out(A) ->
                                 [Countries])},
                       hours(),
                       dl()]};
+                {occupied, Countries2, Name} ->
+                    {ehtml,
+                     [{h1,[],"Xeno Canto Country Downloader"},
+                      {p, [], f("A compilation for ~p is currently running "
+                                "on behalf of ~s",
+                                [Countries2, Name])},
+                      {p, [], "I only allow one concurrent compilation at a "
+                       "time due to memory constraints on the  host "
+                       "where this service "
+                       "is running."
+                       " Please retry this country compilation later "}]};
+
                 none ->
                     {ehtml,
                      [{h1,[],"Xeno Canto Country Downloader"},
