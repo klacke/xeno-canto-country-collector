@@ -22,7 +22,7 @@
 
 call_out(A) ->
 
-    {ok, Bin} = file:read_file(A#arg.docroot ++ "/xeno/checklists.bin"),
+    {ok, Bin} = file:read_file(A#arg.docroot ++ "/xeno/DATA/checklists.bin"),
     CL = lists:keysort(1, binary_to_term(Bin)),
 
      {ehtml,
@@ -32,7 +32,12 @@ call_out(A) ->
         "collections from xeno-canto on per country basis."
         "It's most useful when you're going to travel to a country, and want"
         " a collection of recordings from that country (and neighboring "
-        "countries as well."},
+        "countries as well. "},
+       {p, [], 
+        "The collection is based on the aggregated checklist (IOC) from the"
+        " choosen countries, then the recordings are picked from xeno-canto"
+        " irrespective of which counry the recording is made in"},
+        
 
        {p, [], ["The code for this is open source and resides on github at ",
                 {a, [{href, "https://github.com/klacke/xeno-canto-country-collector"}],
@@ -106,16 +111,15 @@ call_out(A) ->
 %% Once submit is hit on first page
 
 call_gen_out(A) ->
-    CLFILE = A#arg.docroot ++ "/xeno/checklists.bin",
+    CLFILE = A#arg.docroot ++ "/xeno/DATA/checklists.bin",
     {ok, Bin} = file:read_file(CLFILE),
     CL = lists:keysort(1, binary_to_term(Bin)),
 
 
     P = yaws_api:parse_query(A),
     P2 = [ X || { X,_Y} <- P ],
-    io:format("P2 = ~p~n", [P2]),
+    %io:format("P2 = ~p~n", [P2]),
     Countries = P2 -- ["Checklist", "ZIP"],
-
 
     T = ets:new(list, [set, public]),
     lists:foreach(
@@ -130,12 +134,13 @@ call_gen_out(A) ->
               end
       end, P2),
 
-    EHTML =
+
     case {lists:member("Checklist", P2), lists:member("ZIP", P2)}  of
         {true, _} ->
 
             %% Calculate num species
 
+            EHTML = 
             {ehtml,
              [{h1,[],"Checklist ......"},
               {h2, [], "Countries: " ++ [C ++ ", " || C <- Countries]},
@@ -150,7 +155,7 @@ call_gen_out(A) ->
                    lists:filtermap(
                      fun({Name, Latin}) ->
                              Dir = A#arg.docroot ++
-                                 "/xeno/calls/" ++ binary_to_list(Name),
+                                 "/xeno/DATA/calls/" ++ binary_to_list(Name),
                              case file:list_dir(Dir) of
                                  {ok, Files} ->
                                      Num = length(Files),
@@ -166,24 +171,25 @@ call_gen_out(A) ->
                                      false
                              end
                      end, lists:sort(ets:tab2list(T)))
-              }]};
+              }]},
+            ets:delete(T),
+            EHTML;
         {_, true} ->
 
             DocRoot = A#arg.docroot,
             CName = string:join(Countries, "_"),
 
             RelZipDir = "xeno/zip/" ++ CName,
-            io:format("A=~p~nRelZipDir = ~p~n", [A,RelZipDir]),
             AbsZipDir = DocRoot ++ "/" ++ RelZipDir,
-            %AbsZipFilesDir = DocRoot ++ "/xeno/zipfiles",
-
 
             os:cmd("mkdir -p " ++ "'" ++ AbsZipDir ++ "'"),
-            %os:cmd("mkdir -p " ++ "'" ++ AbsZipFilesDir ++ "'"),
+            os:cmd("rm -f " ++ "'" ++ AbsZipDir ++ "'" ++ ".zip"),
+            clean("'" ++ AbsZipDir ++ "'"),
+            clean("'" ++ AbsZipDir ++ "'" ++ ".zip"),
 
             lists:foreach(
               fun({Name, _Latin}) ->
-                      Dir = A#arg.docroot ++ "/xeno/calls/" ++
+                      Dir = A#arg.docroot ++ "/xeno/DATA/calls/" ++
                           binary_to_list(Name),
                       case file:list_dir(Dir) of
                           {ok, Files} ->
@@ -198,17 +204,54 @@ call_gen_out(A) ->
                       end
               end, ets:tab2list(T)),
 
+            spawn(fun() ->
+                          Q = "'" ++ CName ++"'",
+                          Zip = DocRoot ++ "/xeno/zip",
+                          Cmd = "zip -q -r " ++ Q ++ " "
+                                            ++ Q,
+                          Port = open_port({spawn, Cmd},
+                                           [stderr_to_stdout,
+                                            {cd, Zip}, stream, eof]),
+                          rec_loop(Port)
+                  end),
+            
+                          
+            ets:delete(T),
+
+
             {ehtml,
              [{h1,[],"Xeno Canto Country Downloader ......"},
               {p, [], "ZIP file... for:"},
               {p, [], "Countries: " ++ [C ++ ", " || C <- Countries]},
-              {p, [], "The directory listing in the link below, contains"
-               " a psudo file, all.zip, this is a zip file containing all "
-               " the MP3 files in the entire directory, pick that one"},
-              {p, [], {a, [{href, "zip/" ++ CName}], "Directory with all.zip"}}
+              {p, [], ["The full ZIP file will occur at the link below" ++
+                           " within 10 minutes"]},
+              {a, [{href, "zip/" ++ CName ++ ".zip"}],
+               "ZIP file for " ++ CName}
+              
+              
              ]
             }
-    end,
-    ets:delete(T),
-    EHTML.
+
+
+    end.
+
+rec_loop(P) ->
+    receive
+        {P, {data, BinData}} ->
+            io:format("GOT ~p~n",[BinData]),
+            rec_loop(P);
+        {P, eof} ->
+            ok
+    end.
+
+clean(Dir) ->
+    spawn(fun() ->
+                  receive
+                  after (1000 * 3600 * 28) ->
+                          os:cmd("rm -rf " ++ Dir)
+                  end
+          end).
+
+                    
+
 
